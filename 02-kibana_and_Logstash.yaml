@@ -1,0 +1,143 @@
+---
+- name: Install and configure Kibana on all ELK nodes
+  hosts: elk
+  become: yes
+  vars:
+    kibana_password_file: /tmp/elastic_user_password.txt
+  tasks:
+    - name: Ensure Kibana is installed
+      apt:
+        name: kibana
+        state: present
+        update_cache: yes
+
+    - name: Set primary node fact (first host in elk group)
+      set_fact:
+        elk_primary_node: "{{ groups['elk'][0] }}"
+      run_once: true
+
+
+    - name: Read Elasticsearch password from file
+      slurp:
+        src: "{{ kibana_password_file }}"
+      register: slurped_password
+      delegate_to: "{{ elk_primary_node }}"
+
+    - name : "Print all facts"
+      debug: 
+        var: slurped_password
+      when: node_role == 'primary'
+
+    - name: Set Elasticsearch password fact
+      set_fact:
+        elastic_password: "{{ slurped_password.content }}"
+        # elastic_password: "{{ ['elk_primary_node']['slurped_password']['content'] }}"
+      when: node_role == 'primary'
+
+    - name: Save Elasticsearch password 
+      set_fact:
+        delegate_to: localhost
+        decoded_password: "{{ elastic_password }}"
+      when: node_role == 'primary'
+      run_once: true
+
+    - name: Fetch password from base64
+      shell: echo {{ decoded_password }} | base64 --decode | tr -d '\n' | awk '{print $9}'
+      register: decoded_password
+      when: node_role == 'primary'
+
+    - name: "Set fact for globally passord for elastic search"
+      set_fact: 
+        global_password: "{{ decoded_password }}"
+      delegate_to: localhost
+      run_once: true
+      when: node_role == 'primary'
+
+    - name : "Print all facts again for elastic password"
+      debug: 
+        var: global_password.stdout
+
+
+        
+    - name: Create Kibana service token on primary node
+      when: inventory_hostname == elk_primary_node
+      uri:
+        url: https://localhost:9200/_security/service/elastic/kibana/credential/token/kibana-token
+        method: POST
+        user: elastic
+        password: "{{ decoded_password.stdout }}"
+        validate_certs: false
+        headers:
+          Content-Type: application/json
+        return_content: yes
+      register: kibana_token_response
+
+    - name: Set global fact for token on localhost
+      when: inventory_hostname == elk_primary_node
+      delegate_to: localhost
+      set_fact:
+        kibana_token_value: "{{ kibana_token_response.json.token.value }}"
+      run_once: true
+
+    
+    - name : "Print all facts"
+      debug: 
+        var: kibana_token_value
+
+    - name: Build list of Elasticsearch hosts
+      set_fact:
+        elasticsearch_hosts: >-
+          [{% for host in groups['elk'] %}"https://{{ hostvars[host]['ansible_host'] }}:9200"{% if not loop.last %}, {% endif %}{% endfor %}]
+
+    - name: Configure kibana.yml
+      blockinfile:
+        path: /etc/kibana/kibana.yml
+        block: |
+          server.host: "0.0.0.0"
+          elasticsearch.hosts: {{ elasticsearch_hosts }}
+          elasticsearch.serviceAccountToken: "{{ kibana_token_value }}"
+          elasticsearch.ssl.verificationMode: none         
+        create: yes
+
+    - name: Enable and start Kibana
+      systemd:
+        name: kibana
+        enabled: yes
+        state: started
+
+
+    - name: Install Logstash
+      apt:
+        name: logstash
+        state: present
+        update_cache: yes
+
+    - name: Create Logstash pipeline config
+      copy:
+        dest: "/etc/logstash/conf.d/logstash.conf"
+        content: |
+          input {
+            beats {
+              port => 5044
+            }
+          }
+
+          output {
+            elasticsearch {
+              hosts => ["https://localhost:9200"]
+              user => elastic
+              password => "{{ global_password.stdout }}"
+              ssl_enabled => true
+              ssl_verification_mode => "none"
+              index => "logs-%{+YYYY.MM.dd}"
+            }
+          }
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Enable and start Logstash
+      systemd:
+        name: logstash
+        enabled: yes
+        state: started

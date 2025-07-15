@@ -1,0 +1,146 @@
+---
+- name: Install and configure ELK stack
+  hosts: elk
+  become: yes
+  vars:
+    system_limits: |
+      * soft nofile 65536
+      * hard nofile 65536
+      * soft memlock unlimited
+      * hard memlock unlimited
+  tasks:
+    - name: Set the hostname
+      hostname:
+        name: "{{ hostname }}"
+
+    - name: Disable swap
+      shell: |
+        swapoff -a
+        sed -i '/swap/d' /etc/fstab
+
+    - name: Add hosts entries
+      blockinfile:
+        path: /etc/hosts
+        block: "{{ elk_hosts_entries }}"
+
+    - name: Set system limits
+      blockinfile:
+        path: /etc/security/limits.conf
+        block: "{{ system_limits }}"
+
+    - name: Set vm.max_map_count
+      sysctl:
+        name: vm.max_map_count
+        value: '262144'
+        state: present
+        reload: yes
+
+    - name: Install prerequisites
+      apt:
+        name:
+          - apt-transport-https
+          - wget
+          - gnupg
+        state: present
+        update_cache: yes
+
+    - name: Add Elasticsearch GPG key
+      shell: |
+        wget -qO - https://artifacts.elastic.co/GPG-KEY-elasticsearch | gpg --dearmor | tee /usr/share/keyrings/elasticsearch-keyring.gpg > /dev/null
+      args:
+        creates: /usr/share/keyrings/elasticsearch-keyring.gpg
+
+    - name: Add Elasticsearch APT repository
+      copy:
+        dest: /etc/apt/sources.list.d/elastic-9.x.list
+        content: |
+          deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/9.x/apt stable main
+
+    - name: Install Elasticsearch
+      apt:
+        name: elasticsearch
+        state: present
+        update_cache: yes
+
+    - name: Configure elasticsearch.yml
+      blockinfile:
+        path: /etc/elasticsearch/elasticsearch.yml
+        block: |
+          cluster.name: {{ cluster_name }}
+          node.name: {{ inventory_hostname }}
+          network.host: 0.0.0.0
+          transport.host: 0.0.0.0
+        create: yes
+
+    - name: Enable and start Elasticsearch service (primary only)
+      when: node_role == 'primary'
+      systemd:
+        name: elasticsearch
+        enabled: yes
+        state: started
+
+        #    - name: Wait for Elasticsearch API to be available (primary only)
+        #      when: node_role == 'primary'
+        #      uri:
+        #        url: https://localhost:9200
+        #        method: GET
+        #        status_code: 200
+        #        validate_certs: false
+        #      register: es_api_response
+        #      retries: 10
+        #      delay: 15
+        #      until: es_api_response.status == 200
+
+    - name: Reset elastic user password (primary only)
+      when: node_role == 'primary'
+      shell: /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic --batch
+      register: reset_pass_output
+
+    - name: Save elastic user password to file (primary only)
+      when: node_role == 'primary'
+      copy:
+        dest: /tmp/elastic_user_password.txt
+        content: "{{ reset_pass_output.stdout }}"
+
+    - name: Display elastic user password (primary only)
+      when: node_role == 'primary'
+      debug:
+        msg: "Elastic user password is: {{ reset_pass_output.stdout }}"
+
+    - name: Generate enrollment token on primary
+      when: node_role == 'primary'
+      shell: /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s node
+      register: enrollment_token
+      changed_when: false
+
+    - name: Set token fact on all nodes
+      set_fact:
+        # enrollment_token_value: "{{ hostvars['vivek-elk01-19']['enrollment_token']['stdout'] }}"
+        enrollment_token_value: "{{ hostvars[groups['elk'][0]]['enrollment_token']['stdout'] }}"
+
+    # - name: Copy enrollment token to file (on primary)
+    #   when: node_role == 'primary'
+    #   copy:
+    #     dest: /tmp/enrollment_token.txt
+    #     content: "{{ enrollment_token.stdout }}"
+
+    - name: Copy token to /tmp/enrollment_token.txt on secondary nodes
+      when: node_role == 'secondary'
+      copy:
+        dest: /tmp/enrollment_token.txt
+        content: "{{ enrollment_token_value }}"
+
+    - name: Reconfigure node using enrollment token (secondary only)
+      when: node_role == 'secondary'
+      shell: |
+        echo "y" | /usr/share/elasticsearch/bin/elasticsearch-reconfigure-node --enrollment-token $(cat /tmp/enrollment_token.txt)
+      args:
+        executable: /bin/bash
+
+    - name: Start Elasticsearch on secondary nodes
+      when: node_role == 'secondary'
+      systemd:
+        name: elasticsearch
+        enabled: yes
+        state: started
+

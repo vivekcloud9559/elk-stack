@@ -1,0 +1,19 @@
+[filebeat]
+172.27.19.130
+[filebeat:vars]
+logstash_host=172.27.19.111
+filebeat_inputs=["/var/log/*.log", "/var/log/**/*.log", "/var/log/syslog", "/var/log/auth.log", "/var/log/cloudstack/management/management-server.log"]
+
+[elk]
+vivek-elk01-19 ansible_host=172.27.19.111 node_role=primary hostname=vivek-elk01-19
+vivek-elk02-19 ansible_host=172.27.19.112 node_role=secondary hostname=vivek-elk02-19
+vivek-elk03-19 ansible_host=172.27.19.113 node_role=secondary hostname=vivek-elk03-19
+
+[elk:vars]
+ansible_user=ubuntu
+ansible_ssh_private_key_file=~/.ssh/id_rsa
+cluster_name=elasticsearch-cluster
+elk_hosts_entries=
+  172.27.19.111  vivek-elk01-19
+  172.27.19.112  vivek-elk02-19
+  172.27.19.113  vivek-elk03-19
