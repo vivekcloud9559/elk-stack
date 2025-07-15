@@ -30,6 +30,18 @@ elk-deployment/
 ## 📁 Inventory File: `inventory/myinventory`
 
 ```ini
+
+[filebeat_nodes]
+# ✅ Add/remove nodes based on environment
+app-node1 ansible_host=172.27.19.201
+app-node2 ansible_host=172.27.19.202
+
+[filebeat_nodes:vars]
+ansible_user=ubuntu
+ansible_ssh_private_key_file=~/.ssh/id_rsa
+logstash_host=172.27.19.111
+filebeat_inputs=["/var/log/*.log", "/var/log/**/*.log", "/var/log/syslog", "/var/log/auth.log"]
+
 [elk]
 # 🔧 Change these hostnames and IPs to match the actual ELK server nodes
 vivek-elk01-19 ansible_host=172.27.19.111 node_role=primary hostname=vivek-elk01-19
@@ -46,16 +58,7 @@ elk_hosts_entries=
   172.27.19.112  vivek-elk02-19
   172.27.19.113  vivek-elk03-19
 
-[filebeat_nodes]
-# ✅ Add/remove nodes based on environment
-app-node1 ansible_host=172.27.19.201
-app-node2 ansible_host=172.27.19.202
 
-[filebeat_nodes:vars]
-ansible_user=ubuntu
-ansible_ssh_private_key_file=~/.ssh/id_rsa
-logstash_host=172.27.19.111
-filebeat_inputs=["/var/log/*.log", "/var/log/**/*.log", "/var/log/syslog", "/var/log/auth.log"]
 ```
 
 ---
@@ -141,17 +144,6 @@ netstat -plnt | grep 5044
 
 # View Filebeat logs
 journalctl -u filebeat -f
-```
-
----
-
-## 📌 Dynamic Primary Node Logic
-
-This line in the playbook ensures the **first host in `[elk]`** group is used as the primary:
-
-```yaml
-set_fact:
-  enrollment_token_value: "{{ hostvars[groups['elk'][0]]['enrollment_token']['stdout'] }}"
 ```
 
 This eliminates the need to hardcode hostnames like `vivek-elk01-19`.
