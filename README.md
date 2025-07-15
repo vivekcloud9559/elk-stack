@@ -27,6 +27,39 @@ elk-deployment/
 
 ---
 
+## ELK Stack Deployment using Ansible
+
+This repository contains Ansible playbooks to automate the high-availability deployment of the ELK (Elasticsearch, Logstash, Kibana) stack across multiple nodes.
+
+### Playbooks Overview
+
+- `01-elastic.yaml` – Installs and configures Elasticsearch in a multi-node, high-availability setup.
+- `02-kibana-and-logstash.yaml` – Installs and configures Kibana and Logstash on the same ELK nodes.
+- `03-filebeat.yaml` – Installs Filebeat on designated log collection nodes and ships logs to Logstash.
+
+### Inventory Structure
+
+The inventory is divided into two groups:
+
+- `[elk]` – Nodes where Elasticsearch, Kibana, and Logstash will be installed.
+- `[filebeat]` – Nodes where Filebeat will be installed to collect and forward logs.
+
+### Important Notes
+
+- The `elastic` superuser password is **automatically reset** in the `01-elastic.yaml` playbook.
+  - This happens in the task:  
+    **Display elastic user password (primary only)**  
+    which is only executed on the primary node.
+  - The password is shown in the terminal using a debug message:
+    ```yaml
+    - name: Display elastic user password (primary only)
+      when: node_role == 'primary'
+      debug:
+        msg: "Elastic user password is: {{ reset_pass_output.stdout }}"
+    ```
+  - ⚠️ **Make sure to capture and save this password**, as it is required for authentication in Kibana and API access.
+
+---
 ## 📁 Inventory File: `inventory/myinventory`
 
 ```ini
