@@ -1,0 +1,42 @@
+---
+- name: Install and configure ELK stack
+  hosts: elk
+  become: yes
+  vars:
+    seed_hosts: "{{ groups['elk'] | difference([inventory_hostname]) | map('extract', hostvars, 'ansible_host') | list }}"
+    initial_master_nodes: "{{ groups['elk'] | map('extract', hostvars, 'hostname') | list }}"
+  tasks:
+
+    - name: Comment existing cluster.initial_master_nodes lines
+      lineinfile:
+        path: /etc/elasticsearch/elasticsearch.yml
+        regexp: '^cluster.initial_master_nodes:'
+        line: '# \g<0>'
+        backrefs: yes
+      # when: node_role == 'primary'
+
+    - name: Comment existing cluster.initial_master_nodes lines
+      lineinfile:
+        path: /etc/elasticsearch/elasticsearch.yml
+        regexp: '^discovery.seed_hosts:'
+        line: '# \g<0>'
+        backrefs: yes
+      # when: node_role == 'primary'
+        
+    - name: Configure elasticsearch for 3 node 
+      blockinfile:
+        path: /etc/elasticsearch/elasticsearch.yml
+        block: |
+          cluster.name: {{ cluster_name }}
+          node.name: {{ inventory_hostname }}
+          network.host: 0.0.0.0
+          transport.host: 0.0.0.0
+          discovery.seed_hosts: {{ seed_hosts | to_json }}
+          cluster.initial_master_nodes: {{ initial_master_nodes | to_json }}
+      # when: node_role == 'primary'
+
+    - name: Restart Elastic Node
+      systemd:
+        name: elasticsearch
+        enabled: yes
+        state: restarted

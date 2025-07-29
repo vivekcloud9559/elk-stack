@@ -1,0 +1,4 @@
+elk_hosts_entries: |
+  172.27.19.111 vivek-elk01-19
+  172.27.19.112 vivek-elk02-19
+  172.27.19.113 vivek-elk03-19
