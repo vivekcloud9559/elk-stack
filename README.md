@@ -137,7 +137,15 @@ What this does:
 
 ---
 
-### ✅ Step 3: Install Filebeat
+### ✅ Step 4: Install Addional config for 3 node 
+
+```bash
+ansible-playbook -i inventory/myinventory 01-02-elastic-final-config.yaml
+```
+
+---
+
+### ✅ Step 5: Install Filebeat
 
 ```bash
 ansible-playbook -i inventory/myinventory 03-filebeat.yaml
